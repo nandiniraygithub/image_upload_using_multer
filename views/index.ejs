@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Upload App</title>
+    <link href="style.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+    <main class="app">
+        <div class="header">
+            <h2>Upload Images</h2>
+            <div class="server-message"></div>
+        </div>
+
+        <div class="input-div">
+            <p>Drag and drop images here or <span class="browse">Browse</span></p>
+            <label for="file-upload" class="custom-file-upload">Browse</label>
+            <input id="file-upload" type="file" class="file" multiple accept="image/png, image/jpeg, image/jpg">
+        </div>
+
+        <form id="saved-form">
+            <div class="header">
+                <h3>Saved in server</h3>
+                <button type="submit">Delete</button>
+            </div>
+            <div class="saved-div"></div>
+        </form>
+
+        <form id="queued-form">
+            <div class="header">
+                <h3>Queued in frontend</h3>
+                <button type="submit" title="Upload all queued images">Upload</button>
+            </div>
+            <div class="queued-div"></div>
+        </form>
+    </main>
+<script>
+    let queuedImagesArray = [],
+    savedForm = document.querySelector("#saved-form"),
+    queuedForm = document.querySelector("#queued-form"),
+    savedDiv = document.querySelector(".saved-div"),
+    queuedDiv = document.querySelector(".queued-div"),
+    inputDiv = document.querySelector(".input-div"),
+    input = document.querySelector("#file-upload"),
+    serverMessage = document.querySelector(".server-message"),
+    savedImages = [],
+    deleteImages = [];
+
+// Parse saved images from server
+try {
+    savedImages = JSON.parse('<%- JSON.stringify(images) %>');
+} catch (error) {
+    console.error("Error parsing saved images:", error);
+    updateServerMessage("Error loading saved images.", true);
+}
+
+// Display saved images
+if (savedImages.length) displaySavedImages();
+
+function displaySavedImages() {
+    savedDiv.innerHTML = savedImages.map((image, index) => `
+        <div class="image">
+            <img src="/uploads/${encodeURIComponent(image)}" alt="image">
+            <span onclick="deleteSavedImage(${index})">&times;</span>
+        </div>
+    `).join('');
+}
+
+function deleteSavedImage(index) {
+    deleteImages.push(savedImages[index]);
+    savedImages.splice(index, 1);
+    displaySavedImages();
+}
+
+// Handle delete form submission
+savedForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (deleteImages.length) {
+        deleteImagesFromServer();
+    }
+});
+
+function deleteImagesFromServer() {
+    fetch("delete", {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ deleteImages })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error("Failed to delete images");
+        return response.json();
+    })
+    .then(data => {
+        updateServerMessage(data.message, false);
+        deleteImages = [];
+        displaySavedImages();
+    })
+    .catch(error => updateServerMessage(error.message, true));
+}
+
+// Queued in frontend images
+input.addEventListener("change", () => {
+    Array.from(input.files).forEach(file => {
+        if (file.type.startsWith('image/')) {
+            queuedImagesArray.push(file);
+        }
+    });
+    input.value = ""; // Reset the input
+    displayQueuedImages();
+});
+
+inputDiv.addEventListener("drop", (e) => {
+    e.preventDefault();
+    Array.from(e.dataTransfer.files).forEach(file => {
+        if (file.type.startsWith('image/') && 
+            !queuedImagesArray.some(image => image.name === file.name)) {
+            queuedImagesArray.push(file);
+        }
+    });
+    displayQueuedImages();
+});
+
+inputDiv.addEventListener("dragover", (e) => {
+    e.preventDefault();
+});
+
+function displayQueuedImages() {
+    queuedDiv.innerHTML = queuedImagesArray.map((image, index) => `
+        <div class="image">
+            <img src="${URL.createObjectURL(image)}" alt="image">
+            <span onclick="deleteQueuedImage(${index})">&times;</span>
+        </div>
+    `).join('');
+}
+
+function deleteQueuedImage(index) {
+    queuedImagesArray.splice(index, 1);
+    displayQueuedImages();
+}
+
+queuedForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendQueuedImagesToServer();
+});
+function sendQueuedImagesToServer() {
+    const formData = new FormData();
+
+    queuedImagesArray.forEach((image, index) => {
+        formData.append('files', image);  // Changed from `files[${index}]` to 'files'
+    });
+
+    fetch("upload", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) throw new Error("Failed to upload images");
+        return response.json();
+    })
+    .then(data => {
+        serverMessage.textContent = data.message;
+        serverMessage.style.backgroundColor = "#d4edda";
+        serverMessage.style.color = "#155724";
+        queuedImagesArray = [];
+        displayQueuedImages();
+        // Refresh saved images
+        savedImages = data.savedImages || [];
+        displaySavedImages();
+    })
+    .catch(error => {
+        serverMessage.textContent = error.message;
+        serverMessage.style.backgroundColor = "#f8d7da";
+        serverMessage.style.color = "#b71c1c";
+    });
+}
+
+
+function updateServerMessage(message, isError) {
+    serverMessage.textContent = message;
+    serverMessage.style.backgroundColor = isError ? "#f8d7da" : "#d4edda";
+    serverMessage.style.color = isError ? "#b71c1c" : "#155724";
+}
+
+</script>
+</body>
+</html>
